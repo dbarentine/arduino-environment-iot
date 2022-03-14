@@ -1,0 +1,103 @@
+# !!! WARNING !!! AUTO-GENERATED FILE, PLEASE DO NOT MODIFY IT AND USE
+# https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+#
+# If you need to override existing CMake configuration or add extra,
+# please create `CMakeListsUser.txt` in the root of project.
+# The `CMakeListsUser.txt` will not be overwritten by PlatformIO.
+
+
+
+set(CMAKE_CONFIGURATION_TYPES "mkrwifi1010" CACHE STRING "Build Types reflect PlatformIO Environments" FORCE)
+
+# Convert "Home Directory" that may contain unescaped backslashes on Windows
+
+set(CLION_SVD_FILE_PATH "$ENV{HOME}/.platformio/platforms/atmelsam/misc/svd/ATSAMD21G18A.svd" CACHE FILEPATH "Peripheral Registers Definitions File" FORCE)
+
+SET(CMAKE_C_COMPILER "$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc")
+SET(CMAKE_CXX_COMPILER "$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-g++")
+SET(CMAKE_CXX_FLAGS "-fno-rtti -fno-exceptions -std=gnu++11 -fno-threadsafe-statics -Os -ffunction-sections -fdata-sections -Wall -mcpu=cortex-m0plus -mthumb -nostdlib --param max-inline-insns-single=500")
+SET(CMAKE_C_FLAGS "-std=gnu11 -Os -ffunction-sections -fdata-sections -Wall -mcpu=cortex-m0plus -mthumb -nostdlib --param max-inline-insns-single=500")
+
+SET(CMAKE_C_STANDARD 11)
+set(CMAKE_CXX_STANDARD 11)
+
+if (CMAKE_BUILD_TYPE MATCHES "mkrwifi1010")
+    add_definitions(-DPLATFORMIO=50205)
+    add_definitions(-DARDUINO_SAMD_MKRWIFI1010)
+    add_definitions(-D__SAMD21G18A__)
+    add_definitions(-DUSE_BQ24195L_PMIC)
+    add_definitions(-DUSE_ARDUINO_MKR_PIN_LAYOUT)
+    add_definitions(-DARDUINO=10805)
+    add_definitions(-DF_CPU=48000000L)
+    add_definitions(-DUSBCON)
+    add_definitions(-DUSB_VID=0x2341)
+    add_definitions(-DUSB_PID=0x8054)
+    add_definitions(-DUSB_PRODUCT=\"Arduino\ MKR\ WiFi\ 1010\")
+    add_definitions(-DUSB_MANUFACTURER=\"Arduino\")
+    add_definitions(-DARDUINO_ARCH_SAMD)
+
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/include")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SNU/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/ArduinoHttpClient/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/TCA9548")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Grove - Laser PM2.5 Sensor HM3301/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Seeed_Arduino_mbedtls/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/arduino-timer/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/FreeMemory")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Seeed_SHT35")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/Wire")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/LibPrintf/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/RTCZero/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Arduino_ConnectionHandler/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Arduino_DebugUtils/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/WiFiNINA/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SPI")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/cores/arduino/api/deprecated")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/cores/arduino/api/deprecated-avr-comp")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-cmsis/CMSIS/Include")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-cmsis-atmel/CMSIS/Device/ATMEL")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/cores/arduino")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/variants/mkrwifi1010")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/ArduinoBearSSL/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/ArduinoECCX08/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/ArduinoJson/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/ArduinoMqttClient/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/Azure SDK for C/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/AzureSdk")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/MKRGSM/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/MKRNB/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/MKRWAN/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/PromLokiTransport/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/PrometheusArduino/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/SnappyProto/src")
+    include_directories("${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/WiFi101/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/HID")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/I2S/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SAMD_AnalogCorrection/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SAMD_BootloaderUpdater/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SBU/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SDU/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SFU/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/SSU/src")
+    include_directories("$ENV{HOME}/.platformio/packages/framework-arduino-samd/libraries/USBHost/src")
+    include_directories("$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include/c++/7.2.1")
+    include_directories("$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include/c++/7.2.1/arm-none-eabi")
+    include_directories("$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/lib/gcc/arm-none-eabi/7.2.1/include-fixed")
+    include_directories("$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/lib/gcc/arm-none-eabi/7.2.1/include")
+    include_directories("$ENV{HOME}/.platformio/packages/toolchain-gccarmnoneeabi/arm-none-eabi/include")
+    include_directories("$ENV{HOME}/.platformio/packages/tool-unity")
+
+    FILE(GLOB_RECURSE EXTRA_LIB_SOURCES
+        ${CMAKE_CURRENT_LIST_DIR}/.pio/libdeps/mkrwifi1010/*.*
+    )
+endif()
+
+
+FILE(GLOB_RECURSE SRC_LIST
+    ${CMAKE_CURRENT_LIST_DIR}/src/*.*
+    ${CMAKE_CURRENT_LIST_DIR}/lib/*.*
+    ${CMAKE_CURRENT_LIST_DIR}/test/*.*
+)
+
+list(APPEND SRC_LIST ${EXTRA_LIB_SOURCES})
