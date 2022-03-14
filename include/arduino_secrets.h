@@ -1,0 +1,5 @@
+#define SECRET_SSID "WifiSSID"
+#define SECRET_PASS "password"
+#define SECRET_IOT_HUB_BROKER "hubname.azure-devices.net"
+#define SECRET_IOT_HUB_DEVICEKEY "devicekey"
+#define SECRET_IOT_HUB_DEVICEID "arduino1"
