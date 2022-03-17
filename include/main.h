@@ -21,7 +21,8 @@ bool readSensors(void *argument);
 
 void onNetworkConnect();
 
-void setRTC(bool failIfUnavailable);
+bool setRTC(void *argument);
+void setRTC(bool waitOnRTC);
 
 int publishMessage(std::string str);
 

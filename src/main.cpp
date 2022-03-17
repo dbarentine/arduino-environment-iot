@@ -16,10 +16,10 @@ auto timer = timer_create_default();
 #ifdef MOCK_INFLUXDB_API
 WiFiClient wiFiClient;
 IPAddress ipAddress(10, 10, 5, 164);
-HttpClient httpClient(wiFiClient, ipAddress, 3001);
+//HttpClient httpClient(wiFiClient, ipAddress, 3001);
 #else
 WiFiSSLClient wifiSSLClient;
-HttpClient httpClient(wifiSSLClient, INFLUXDB_HOST, 443);
+//HttpClient httpClient(wifiSSLClient, INFLUXDB_HOST, 443);
 #endif
 
 SensorService sensors(Logger, true);
@@ -29,6 +29,8 @@ void setup() {
     delay(5000);
 
     Logger.Info("Startup");
+    rtc.begin();
+
     for (const auto &tempSensor: tempHumiditySensors) {
         auto[location, usesMultiplexer, channel, address] = tempSensor.second;
         Logger.Debug("Adding sensor %s for location %s", tempSensor.first, location);
@@ -59,31 +61,34 @@ void setup() {
 
     setDebugMessageLevel(DBG_INFO);
     conMan.addCallback(NetworkConnectionEvent::CONNECTED, onNetworkConnect);
+
+    timer.every(1000 * 30, readSensors);
+    timer.every(1000 * 60 * 60, setRTC);
 }
 
 void loop() {
     conMan.check();
-
-    if (WiFi.status() != WL_CONNECTED) {
-        Logger.Info("Waiting on WiFi connection");
-        delay(1000);
-        return;
-    }
-
-    if (rtc.getMinutes() == 59 && rtc.getSeconds() == 0) {
-        setRTC(false); // get NTP time every hour at minute 59
-    }
-
     timer.tick();
 }
 
 bool readSensors(void *argument) {
-    int statusCode = sensors.readAndPublishSensors(&publishMessage);
-    Logger.Debug("Finished reading and publishing sensors with a status code of %d", statusCode);
+    if (WiFi.status() != WL_CONNECTED) {
+        Logger.Info("Waiting on WiFi connection");
+    }
+    else {
+        int statusCode = sensors.readAndPublishSensors(&publishMessage);
+        Logger.Debug("Finished reading and publishing sensors with a status code of %d", statusCode);
+    }
     return true;
 }
 
 int publishMessage(std::string str) {
+#ifdef MOCK_INFLUXDB_API
+    HttpClient httpClient(wiFiClient, ipAddress, 3001);
+#else
+    HttpClient httpClient(wifiSSLClient, INFLUXDB_HOST, 443);
+#endif
+
     const char* payload = str.c_str();
     size_t payloadLength = strlen(payload);
 
@@ -109,30 +114,28 @@ int publishMessage(std::string str) {
 
 void onNetworkConnect() {
     Logger.LogNetworkInformation();
-
-    rtc.begin();
     setRTC(true);
-
-    timer.every(1000 * 30, readSensors);
 }
 
-void setRTC(bool failIfUnavailable) { // get the time from Internet Time Service
+bool setRTC(void *argument) {
+    setRTC(false);
+    return true;
+}
+
+void setRTC(bool waitOnRTC) { // get the time from Internet Time Service
     unsigned long epoch;
-    int numberOfTries = 0, maxTries = 10;
     do {
         epoch = WiFi.getTime(); // The RTC is set to GMT or 0 Time Zone and stays at GMT.
-        numberOfTries++;
-        delay(1000);
-    } while ((epoch == 0) && (numberOfTries < maxTries));
-
-    if (numberOfTries == maxTries) {
-        if (failIfUnavailable) {
-            Logger.Error("NTP unreachable!!");
-            while (1);  // hang
-        } else {
+        if(epoch == 0) {
             Logger.Warning("NTP was unavailable will try again later.");
+
+            if(waitOnRTC) {
+                delay(1000);
+            }
         }
-    } else {
+    } while (epoch == 0 && waitOnRTC);
+
+    if(epoch != 0) {
         Logger.Info("Updating RTC from NTP server with Epoch of: %d", epoch);
         rtc.setEpoch(epoch);
     }
