@@ -7,14 +7,16 @@
 #include "SensorService.h"
 #include "SerialLogger.h"
 
-// Definitions for the globals declared extern in main.h. INFLUXDB_URL is built
-// at compile time from string-literal secrets, so it needs no runtime heap
-// allocation (the previous std::string forced a heap alloc before setup()).
+// Definitions for the globals declared extern in main.h. Telemetry is sent as
+// OTLP/HTTP JSON to a local OpenTelemetry Collector on the LAN (plain HTTP); the
+// Collector forwards to Grafana Cloud. All values are compile-time constants so
+// no runtime heap allocation happens before setup().
 const char SSID[] = SECRET_SSID;
 const char PASS[] = SECRET_PASS;
-const char INFLUXDB_HOST[] = INFLUX_HOST;
-const char INFLUXDB_TOKEN[] = INFLUX_TOKEN;
-const char INFLUXDB_URL[] = "/api/v2/write?org=" INFLUX_ORG_ID "&bucket=" INFLUX_BUCKET "&precision=s";
+const char OTEL_HOST[] = OTEL_COLLECTOR_HOST;
+const int OTEL_PORT = OTEL_COLLECTOR_PORT;
+const char OTEL_METRICS_PATH[] = "/v1/metrics";
+const char OTEL_SVC_NAME[] = OTEL_SERVICE_NAME;
 int status = WL_IDLE_STATUS;
 
 WiFiConnectionHandler conMan(SSID, PASS);
@@ -23,14 +25,9 @@ SerialLogger Logger;
 
 auto timer = timer_create_default();
 
-#ifdef MOCK_INFLUXDB_API
+// Plain HTTP to the LAN Collector — no TLS is needed on-device (the Collector
+// performs the TLS hop to Grafana Cloud).
 WiFiClient wiFiClient;
-IPAddress ipAddress(10, 10, 5, 164);
-//HttpClient httpClient(wiFiClient, ipAddress, 3001);
-#else
-WiFiSSLClient wifiSSLClient;
-//HttpClient httpClient(wifiSSLClient, INFLUXDB_HOST, 443);
-#endif
 
 SensorService sensors(Logger, true);
 
@@ -86,28 +83,25 @@ bool readSensors(void *argument) {
         Logger.Info("Waiting on WiFi connection");
     }
     else {
-        int statusCode = sensors.readAndPublishSensors(&publishMessage);
+        int statusCode = sensors.readAndPublishSensors(&publishMessage, OTEL_SVC_NAME);
         Logger.Debug("Finished reading and publishing sensors with a status code of %d", statusCode);
     }
     return true;
 }
 
 int publishMessage(const std::string& str) {
-#ifdef MOCK_INFLUXDB_API
-    HttpClient httpClient(wiFiClient, ipAddress, 3001);
-#else
-    HttpClient httpClient(wifiSSLClient, INFLUXDB_HOST, 443);
-#endif
+    // Plain HTTP to the LAN OpenTelemetry Collector; it converts to protobuf and
+    // forwards to Grafana Cloud, so the device needs no TLS or credentials here.
+    HttpClient httpClient(wiFiClient, OTEL_HOST, OTEL_PORT);
 
     const char* payload = str.c_str();
     size_t payloadLength = str.length();
 
-    Logger.Debug("Starting HttpRequest to %s", INFLUXDB_URL);
+    Logger.Debug("Posting OTLP metrics to http://%s:%d%s", OTEL_HOST, OTEL_PORT, OTEL_METRICS_PATH);
     //Logger.Debug("Payload %s", payload);
     httpClient.beginRequest();
-    httpClient.post(INFLUXDB_URL);
-    httpClient.sendHeader("Content-Type", "text/plain");
-    httpClient.sendHeader("Authorization", INFLUXDB_TOKEN);
+    httpClient.post(OTEL_METRICS_PATH);
+    httpClient.sendHeader("Content-Type", "application/json");
     httpClient.sendHeader(HTTP_HEADER_CONTENT_LENGTH, payloadLength);
     httpClient.beginBody();
     httpClient.write((const uint8_t *)payload, payloadLength);
@@ -116,16 +110,17 @@ int publishMessage(const std::string& str) {
     int statusCode = httpClient.responseStatusCode();
     //Logger.Debug("Finished HttpRequest with status code %d", statusCode);
 
-    // Always drain the response body so no bytes are left pending in the
-    // WiFi/SSL receive buffer; only log it on an error status. Pass it as a
-    // "%s" argument (not as the format string) so a body containing '%' is safe.
+    // Always drain the response body so no bytes are left pending in the WiFi
+    // receive buffer; only log it on a non-2xx status. Pass it as a "%s" argument
+    // (not as the format string) so a body containing '%' is safe. A successful
+    // OTLP/HTTP export returns 200 with an empty or {"partialSuccess":{}} body.
     String responseBody = httpClient.responseBody();
     if(statusCode >= 300) {
         Logger.Error("%s", responseBody.c_str());
     }
 
-    // Release the underlying WiFiSSLClient/WiFiClient connection so TLS session
-    // state and socket buffers do not accumulate between 30s publish cycles.
+    // Release the connection so socket buffers do not accumulate between the
+    // 30s publish cycles.
     httpClient.stop();
 
     return statusCode;

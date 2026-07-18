@@ -4,10 +4,11 @@
 #define SECRET_SSID "WifiSSID"
 #define SECRET_PASS "password"
 
-#define INFLUX_HOST "us-west-2-2.aws.cloud2.influxdata.com" // Influx host (e.g. eu-central-1-1.aws.cloud2.influxdata.com)
-#define INFLUX_ORG_ID "orgid" // Org id
-#define INFLUX_TOKEN "Token influxdb_token" // Influx token
-#define INFLUX_BUCKET "environment_data" // Influx bucket that we set up for this host
+// OpenTelemetry Collector (LAN) — device POSTs OTLP/HTTP JSON here.
+// OTEL_COLLECTOR_HOST must match the deployed otel-collector Service LoadBalancer IP.
+#define OTEL_COLLECTOR_HOST  "10.10.4.234"
+#define OTEL_COLLECTOR_PORT  4318
+#define OTEL_SERVICE_NAME    "arduino-environment-iot"
 
 std::map<const char *, std::tuple<const char*, bool, ushort, uint8_t>> tempHumiditySensors = {
         {"sensor1", {"crawlspace", true, 0, 0x45}},

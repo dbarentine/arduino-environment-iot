@@ -49,32 +49,90 @@ SensorService::SensorService(SerialLogger &logger, bool multiplexerEnabled, uint
         : logger(logger), multiplexerEnabled(multiplexerEnabled), multiplexer(multiplexerAddress) {
 }
 
-int SensorService::readAndPublishSensors(int(*publish)(const std::string& str)) {
-    std::stringstream ss;
+// Appends one OTLP NumberDataPoint (gauge, asDouble) with sensor.name + location
+// attributes to a per-metric data-point buffer. `first` tracks the comma between
+// data points. Values are formatted via stringstream (reliable float formatting
+// on SAMD, unlike snprintf("%f") which needs float printf support linked in).
+static void appendDataPoint(std::stringstream& dps, bool& first, double value, unsigned long epoch,
+                            const char* name, const char* location) {
+    if (!first) {
+        dps << ",";
+    }
+    first = false;
+    // timeUnixNano = epoch seconds * 1e9, built as a string (OTLP/JSON requires
+    // 64-bit fields as strings) by appending nine zeros — no 64-bit math needed.
+    dps << "{\"asDouble\":" << value
+        << ",\"timeUnixNano\":\"" << epoch << "000000000\","
+        << "\"attributes\":["
+        << "{\"key\":\"sensor.name\",\"value\":{\"stringValue\":\"" << name << "\"}},"
+        << "{\"key\":\"location\",\"value\":{\"stringValue\":\"" << location << "\"}}"
+        << "]}";
+}
+
+// Appends one gauge metric to the metrics array (skipped if it has no data
+// points, e.g. no sensors of that kind are configured).
+static void appendGauge(std::stringstream& ss, bool& first, const char* name, const std::string& dataPoints) {
+    if (dataPoints.empty()) {
+        return;
+    }
+    if (!first) {
+        ss << ",";
+    }
+    first = false;
+    ss << "{\"name\":\"" << name << "\",\"gauge\":{\"dataPoints\":[" << dataPoints << "]}}";
+}
+
+int SensorService::readAndPublishSensors(int(*publish)(const std::string& str), const char* serviceName) {
+    // One timestamp for the whole batch, so all points share a consistent time.
+    const unsigned long epoch = rtc.getEpoch();
+
+    // Accumulate data points per metric across all sensors, then emit one gauge
+    // metric per measurement (grouping keeps the OTLP payload compact).
+    std::stringstream temperatureDps, humidityDps, pm1_0Dps, pm2_5Dps, pm10Dps;
+    bool temperatureFirst = true, humidityFirst = true, pm1_0First = true, pm2_5First = true, pm10First = true;
 
     for (const auto &tempSensor: temperatureHumiditySensors) {
         auto[temperature, humidity] = readTemperatureHumiditySensor(tempSensor.first);
         logger.Debug("%s - Temperature: %.2f, Humidity: %.2f%%", tempSensor.first.c_str(), temperature, humidity);
 
-        //std::format("temperature_humidity,name=%s temperature=%f,humidity=%f 1465839830100400200", tempSensor.first, temperature, humidity);
-        ss << "sensors,type=temperature_humidity,name=" << tempSensor.first << ",location=" << tempSensor.second.location << " temperature=" << temperature
-           << ",humidity=" << humidity << " " << rtc.getEpoch() << "\n";
+        const char* name = tempSensor.first.c_str();
+        const char* location = tempSensor.second.location.c_str();
+        appendDataPoint(temperatureDps, temperatureFirst, temperature, epoch, name, location);
+        appendDataPoint(humidityDps, humidityFirst, humidity, epoch, name, location);
     }
 
     for (const auto &dustSensor: dustSensors) {
         auto[pm1_0_spm, pm2_5_spm, pm10_spm, pm1_0_ae, pm2_5_ae, pm10_ae] = readDustSensor(dustSensor.first);
-        // Logger.Debug("dustsensor1 - PM1.0 concentration(CF=1,Standard particulate matter,unit:ug/m3): %d", pm1_0_spm);
-        // Logger.Debug("dustsensor1 - PM2.5 concentration(CF=1,Standard particulate matter,unit:ug/m3): %d", pm2_5_spm);
-        // Logger.Debug("dustsensor1 - PM10 concentration(CF=1,Standard particulate matter,unit:ug/m3): %d", pm10_spm);
         logger.Debug("%s - PM1.0 concentration(Atmospheric environment,unit:ug/m3): %d", dustSensor.first.c_str(),
                      pm1_0_ae);
         logger.Debug("%s - PM2.5 concentration(Atmospheric environment,unit:ug/m3): %d", dustSensor.first.c_str(),
                      pm2_5_ae);
         logger.Debug("%s - PM10 concentration(Atmospheric environment,unit:ug/m3): %d", dustSensor.first.c_str(),
                      pm10_ae);
-        ss << "sensors,type=dust,name=" << dustSensor.first << ",location=" << dustSensor.second.location << " pm1_0_ae=" << pm1_0_ae << ",pm2_5_ae=" << pm2_5_ae
-           << ",pm10_ae=" << pm10_ae << " " << rtc.getEpoch() << "\n";
+
+        const char* name = dustSensor.first.c_str();
+        const char* location = dustSensor.second.location.c_str();
+        appendDataPoint(pm1_0Dps, pm1_0First, pm1_0_ae, epoch, name, location);
+        appendDataPoint(pm2_5Dps, pm2_5First, pm2_5_ae, epoch, name, location);
+        appendDataPoint(pm10Dps, pm10First, pm10_ae, epoch, name, location);
     }
+
+    // Assemble the OTLP/HTTP JSON ExportMetricsServiceRequest. service.name maps
+    // to the Prometheus `job` label; metric-name dots become underscores.
+    std::stringstream ss;
+    ss << "{\"resourceMetrics\":[{"
+       << "\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\""
+       << serviceName << "\"}}]},"
+       << "\"scopeMetrics\":[{\"scope\":{\"name\":\"" << serviceName << "\"},\"metrics\":[";
+
+    bool metricFirst = true;
+    appendGauge(ss, metricFirst, "environment.temperature_fahrenheit", temperatureDps.str());
+    appendGauge(ss, metricFirst, "environment.humidity_percent", humidityDps.str());
+    appendGauge(ss, metricFirst, "environment.pm1_0_ugm3", pm1_0Dps.str());
+    appendGauge(ss, metricFirst, "environment.pm2_5_ugm3", pm2_5Dps.str());
+    appendGauge(ss, metricFirst, "environment.pm10_ugm3", pm10Dps.str());
+
+    ss << "]}]}]}";
 
     // Bind the payload to a const local so it is passed to the callback by
     // reference (see publish signature) rather than copied by value.
