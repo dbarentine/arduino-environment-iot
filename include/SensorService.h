@@ -56,7 +56,7 @@ public:
 
     bool InitializeSensors();
 
-    int readAndPublishSensors(int(*publish)(const std::string& str));
+    int readAndPublishSensors(int(*publish)(const std::string& str), const char* serviceName);
 
 private:
     RTCZero rtc;
