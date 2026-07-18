@@ -52,14 +52,25 @@ void SerialLogger::LogNetworkInformation() {
 
 void SerialLogger::printMessage(const char *logLevel, const char *format, va_list args) {
     printTime();
-    printf(" %9s ", logLevel);
-    vprintf(format, args);
-    printf("\n");
+
+    // Format into a fixed stack buffer and emit via PrintClass instead of the
+    // heap-backed printf/vprintf path. snprintf/vsnprintf here resolve to
+    // LibPrintf's float-capable implementation (see SerialLogger.h), so "%f"
+    // formats correctly. Overlong messages are safely truncated.
+    char buf[200];
+    snprintf(buf, sizeof(buf), " %9s ", logLevel);
+    PrintClass.print(buf);
+
+    vsnprintf(buf, sizeof(buf), format, args);
+    PrintClass.print(buf);
+    PrintClass.print("\n");
 }
 
 void SerialLogger::printTime() {
-    printf("%02d/%02d/%02d %02d:%02d:%02d ", rtc.getMonth(), rtc.getDay(), rtc.getYear(), rtc.getHours(),
-           rtc.getMinutes(), rtc.getSeconds());
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%02d/%02d/%02d %02d:%02d:%02d ", rtc.getMonth(), rtc.getDay(), rtc.getYear(),
+             rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+    PrintClass.print(buf);
 }
 
 void SerialLogger::printMacAddress(byte mac[]) {

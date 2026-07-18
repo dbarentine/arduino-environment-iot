@@ -4,14 +4,17 @@
 #include <string>
 #include "arduino_secrets.h"
 
-const char SSID[] = SECRET_SSID;    // Network SSID (name)
-const char PASS[] = SECRET_PASS;    // Network password (use for WPA, or use as key for WEP)
+// Declarations only — the definitions live in main.cpp so that including this
+// header from more than one translation unit does not cause multiple-definition
+// linker errors.
+extern const char SSID[];               // Network SSID (name)
+extern const char PASS[];               // Network password (use for WPA, or use as key for WEP)
 
-const char INFLUXDB_HOST[] = INFLUX_HOST;
-const char INFLUXDB_TOKEN[] = INFLUX_TOKEN;
-std::string INFLUXDB_URL = std::string("/api/v2/write?org=") + INFLUX_ORG_ID + "&bucket=" + INFLUX_BUCKET + "&precision=s";
+extern const char INFLUXDB_HOST[];
+extern const char INFLUXDB_TOKEN[];
+extern const char INFLUXDB_URL[];
 
-int status = WL_IDLE_STATUS;                     // the Wifi radio's status
+extern int status;                      // the Wifi radio's status
 
 void setup();
 
@@ -24,7 +27,7 @@ void onNetworkConnect();
 bool setRTC(void *argument);
 void setRTC(bool waitOnRTC);
 
-int publishMessage(std::string str);
+int publishMessage(const std::string& str);
 
 /*SAMD core*/
 #ifdef ARDUINO_SAMD_VARIANT_COMPLIANCE

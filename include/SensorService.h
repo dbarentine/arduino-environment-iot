@@ -5,6 +5,7 @@
 #define SEEED_PM2_5_SENSOR_HM3301_HM330X_ERROR_CODE_H
 
 #include <map>
+#include <memory>
 #include <string>
 #include <RTCZero.h>
 #include <Seeed_SHT35.h>
@@ -17,10 +18,10 @@ typedef err_t HM330XErrorCode;
 
 struct TempHumditySensor {
     TempHumditySensor();
-    TempHumditySensor(SHT35 *sensor, std::string location);
-    TempHumditySensor(SHT35 *sensor, ushort channel, std::string location);
+    TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location);
+    TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location);
 
-    SHT35 *sensor;
+    std::unique_ptr<SHT35> sensor;
     bool usesMultiplexer;
     ushort multiplierChannel;
     std::string location;
@@ -28,10 +29,10 @@ struct TempHumditySensor {
 
 struct DustSensor {
     DustSensor();
-    DustSensor(HM330X *sensor, std::string location);
-    DustSensor(HM330X *sensor, ushort channel, std::string location);
+    DustSensor(std::unique_ptr<HM330X> sensor, std::string location);
+    DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location);
 
-    HM330X *sensor;
+    std::unique_ptr<HM330X> sensor;
     bool usesMultiplexer;
     ushort multiplierChannel;
     std::string location;
@@ -49,13 +50,13 @@ public:
     SensorService *addDustSensor(std::string name, std::string location, uint8_t IIC_ADDR);
     SensorService *addDustSensor(std::string name, std::string location, ushort channel, uint8_t IIC_ADDR);
 
-    std::tuple<float, float> readTemperatureHumiditySensor(std::string name);
+    std::tuple<float, float> readTemperatureHumiditySensor(const std::string& name);
 
-    std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> readDustSensor(std::string name);
+    std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> readDustSensor(const std::string& name);
 
     bool InitializeSensors();
 
-    int readAndPublishSensors(int(*publish)(std::string str));
+    int readAndPublishSensors(int(*publish)(const std::string& str));
 
 private:
     RTCZero rtc;
