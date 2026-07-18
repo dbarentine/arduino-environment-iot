@@ -10,9 +10,10 @@
 extern const char SSID[];               // Network SSID (name)
 extern const char PASS[];               // Network password (use for WPA, or use as key for WEP)
 
-extern const char INFLUXDB_HOST[];
-extern const char INFLUXDB_TOKEN[];
-extern const char INFLUXDB_URL[];
+extern const char OTEL_HOST[];          // OpenTelemetry Collector host/IP on the LAN
+extern const int OTEL_PORT;             // Collector OTLP/HTTP port (e.g. 4318)
+extern const char OTEL_METRICS_PATH[];  // OTLP metrics path ("/v1/metrics")
+extern const char OTEL_SVC_NAME[];      // OTLP resource service.name
 
 extern int status;                      // the Wifi radio's status
 
