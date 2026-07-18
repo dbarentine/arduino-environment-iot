@@ -22,34 +22,34 @@
 //                     };
 
 TempHumditySensor::TempHumditySensor()
-    : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location(nullptr) {
+    : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location() {
 }
 
-TempHumditySensor::TempHumditySensor(SHT35 *sensor, std::string location)
-    : sensor(sensor), usesMultiplexer(false), multiplierChannel(0), location(location) {
+TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location)
+    : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)) {
 }
 
-TempHumditySensor::TempHumditySensor(SHT35 *sensor, ushort channel, std::string location)
-    : sensor(sensor), usesMultiplexer(true), multiplierChannel(channel), location(location) {
+TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location)
+    : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)) {
 }
 
 DustSensor::DustSensor()
-        : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location(nullptr) {
+        : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location() {
 }
 
-DustSensor::DustSensor(HM330X *sensor, std::string location)
-        : sensor(sensor), usesMultiplexer(false), multiplierChannel(0), location(location) {
+DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, std::string location)
+        : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)) {
 }
 
-DustSensor::DustSensor(HM330X *sensor, ushort channel, std::string location)
-        : sensor(sensor), usesMultiplexer(true), multiplierChannel(channel), location(location) {
+DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location)
+        : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)) {
 }
 
 SensorService::SensorService(SerialLogger &logger, bool multiplexerEnabled, uint8_t multiplexerAddress)
         : logger(logger), multiplexerEnabled(multiplexerEnabled), multiplexer(multiplexerAddress) {
 }
 
-int SensorService::readAndPublishSensors(int(*publish)(std::string str)) {
+int SensorService::readAndPublishSensors(int(*publish)(const std::string& str)) {
     std::stringstream ss;
 
     for (const auto &tempSensor: temperatureHumiditySensors) {
@@ -76,34 +76,45 @@ int SensorService::readAndPublishSensors(int(*publish)(std::string str)) {
            << ",pm10_ae=" << pm10_ae << " " << rtc.getEpoch() << "\n";
     }
 
-    return publish(ss.str());
+    // Bind the payload to a const local so it is passed to the callback by
+    // reference (see publish signature) rather than copied by value.
+    const std::string payload = ss.str();
+    return publish(payload);
 }
 
-std::tuple<float, float> SensorService::readTemperatureHumiditySensor(std::string name) {
+std::tuple<float, float> SensorService::readTemperatureHumiditySensor(const std::string& name) {
     float temperature = 0, humidity = 0;
 
-    if(multiplexerEnabled && temperatureHumiditySensors[name].usesMultiplexer) {
-        //logger.Debug("Selecting multiplexer channel: %d", temperatureHumiditySensors[name].multiplierChannel);
-        multiplexer.selectChannel(temperatureHumiditySensors[name].multiplierChannel);
+    // Look the sensor up once instead of re-running operator[] (which also
+    // avoids default-inserting a phantom entry on a miss).
+    auto it = temperatureHumiditySensors.find(name);
+    if (it == temperatureHumiditySensors.end()) {
+        return {0.f, 0.f};
+    }
+    auto& s = it->second;
+
+    if(multiplexerEnabled && s.usesMultiplexer) {
+        //logger.Debug("Selecting multiplexer channel: %d", s.multiplierChannel);
+        multiplexer.selectChannel(s.multiplierChannel);
     }
 
-    if (temperatureHumiditySensors[name].sensor != nullptr &&
+    if (s.sensor != nullptr &&
         NO_ERROR !=
-        temperatureHumiditySensors[name].sensor->read_meas_data_single_shot(HIGH_REP_WITH_STRCH, &temperature, &humidity)) {
+        s.sensor->read_meas_data_single_shot(HIGH_REP_WITH_STRCH, &temperature, &humidity)) {
         logger.Warning("Read failed for sensor %s", name.c_str());
     }
 
     temperature = (temperature * 1.8) + 32;
 
-    if(multiplexerEnabled && temperatureHumiditySensors[name].usesMultiplexer) {
-        //logger.Debug("Disabling multiplexer channel: %d", temperatureHumiditySensors[name].multiplierChannel);
-        multiplexer.disableChannel(temperatureHumiditySensors[name].multiplierChannel);
+    if(multiplexerEnabled && s.usesMultiplexer) {
+        //logger.Debug("Disabling multiplexer channel: %d", s.multiplierChannel);
+        multiplexer.disableChannel(s.multiplierChannel);
     }
 
     return {temperature, humidity};
 }
 
-std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorService::readDustSensor(std::string name) {
+std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorService::readDustSensor(const std::string& name) {
     uint16_t pm1_0_spm = 0;
     uint16_t pm2_5_spm = 0;
     uint16_t pm10_spm = 0;
@@ -111,13 +122,20 @@ std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorSer
     uint16_t pm2_5_ae = 0;
     uint16_t pm10_ae = 0;
 
-    if(multiplexerEnabled && dustSensors[name].usesMultiplexer) {
-        //logger.Debug("Selecting multiplexer channel: %d", dustSensors[name].multiplierChannel);
-        multiplexer.selectChannel(dustSensors[name].multiplierChannel);
+    // Single lookup instead of repeated operator[] calls.
+    auto it = dustSensors.find(name);
+    if (it == dustSensors.end()) {
+        return {pm1_0_spm, pm2_5_spm, pm10_spm, pm1_0_ae, pm2_5_ae, pm10_ae};
+    }
+    auto& s = it->second;
+
+    if(multiplexerEnabled && s.usesMultiplexer) {
+        //logger.Debug("Selecting multiplexer channel: %d", s.multiplierChannel);
+        multiplexer.selectChannel(s.multiplierChannel);
     }
 
-    if (dustSensors[name].sensor != nullptr &&
-        NO_ERROR == dustSensors[name].sensor->read_sensor_value(dustSensorBuffer, 29)) {
+    if (s.sensor != nullptr &&
+        NO_ERROR == s.sensor->read_sensor_value(dustSensorBuffer, 29)) {
         // Get checksum from sensor read
         uint8_t sum = 0;
         for (int i = 0; i < 28; i++) {
@@ -145,9 +163,9 @@ std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorSer
         logger.Warning("Read failed for sensor %s", name.c_str());
     }
 
-    if(multiplexerEnabled && dustSensors[name].usesMultiplexer) {
-        //logger.Debug("Disabling multiplexer channel: %d", dustSensors[name].multiplierChannel);
-        multiplexer.disableChannel(dustSensors[name].multiplierChannel);
+    if(multiplexerEnabled && s.usesMultiplexer) {
+        //logger.Debug("Disabling multiplexer channel: %d", s.multiplierChannel);
+        multiplexer.disableChannel(s.multiplierChannel);
     }
 /*  The standard particulate matter mass concentration value refers to the mass concentration value obtained by 
     density conversion of industrial metal particles as equivalent particles, and is suitable for use in industrial 
@@ -161,26 +179,31 @@ std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorSer
 }
 
 SensorService *SensorService::addTemperatureHumiditySensor(std::string name, std::string location, uint8_t IIC_ADDR) {
-    TempHumditySensor sensor(new SHT35(SCLPIN, IIC_ADDR), location.c_str());
-    temperatureHumiditySensors.insert(make_pair(name, sensor));
+    // The struct owns its sensor via unique_ptr and is move-only, so emplace it.
+    temperatureHumiditySensors.emplace(
+        std::move(name),
+        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), std::move(location)));
     return this;
 }
 
 SensorService *SensorService::addTemperatureHumiditySensor(std::string name, std::string location, ushort channel, uint8_t IIC_ADDR) {
-    TempHumditySensor sensor(new SHT35(SCLPIN, IIC_ADDR), channel, location.c_str());
-    temperatureHumiditySensors.insert(make_pair(name, sensor));
+    temperatureHumiditySensors.emplace(
+        std::move(name),
+        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), channel, std::move(location)));
     return this;
 }
 
 SensorService *SensorService::addDustSensor(std::string name, std::string location, uint8_t IIC_ADDR) {
-    DustSensor sensor(new HM330X(IIC_ADDR), location.c_str());
-    dustSensors.insert(make_pair(name, sensor));
+    dustSensors.emplace(
+        std::move(name),
+        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), std::move(location)));
     return this;
 }
 
 SensorService *SensorService::addDustSensor(std::string name, std::string location, ushort channel, uint8_t IIC_ADDR) {
-    DustSensor sensor(new HM330X(IIC_ADDR), channel, location.c_str());
-    dustSensors.insert(make_pair(name, sensor));
+    dustSensors.emplace(
+        std::move(name),
+        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), channel, std::move(location)));
     return this;
 }
 
@@ -193,7 +216,7 @@ bool SensorService::InitializeSensors() {
     }
 
     for (auto const &tempSensor: temperatureHumiditySensors) {
-        TempHumditySensor ths = tempSensor.second;
+        auto& ths = tempSensor.second;
         if(multiplexerEnabled && ths.usesMultiplexer) {
             //logger.Debug("Selecting multiplexer channel: %d", ths.multiplierChannel);
             multiplexer.selectChannel(ths.multiplierChannel);
@@ -211,13 +234,13 @@ bool SensorService::InitializeSensors() {
     }
 
     for (auto const &dustSensor: dustSensors) {
-        DustSensor ds = dustSensor.second;
+        auto& ds = dustSensor.second;
         if(multiplexerEnabled && ds.usesMultiplexer) {
             //logger.Debug("Selecting multiplexer channel: %d", ds.multiplierChannel);
             multiplexer.selectChannel(ds.multiplierChannel);
         }
 
-        if (dustSensor.second.sensor->init()) {
+        if (ds.sensor->init()) {
             logger.Error("Unable to initialize sensor: %s", dustSensor.first.c_str());
             isSuccessful = false;
         }
@@ -239,13 +262,6 @@ SensorService::~SensorService() {
         }
     }
 
-    for (auto &tempSensor: temperatureHumiditySensors) {
-        delete tempSensor.second.sensor;
-        tempSensor.second.sensor = nullptr;
-    }
-
-    for (auto &dustSensor: dustSensors) {
-        delete dustSensor.second.sensor;
-        dustSensor.second.sensor = nullptr;
-    }
+    // Sensors are owned by unique_ptr inside the structs, so they are released
+    // automatically when the maps are destroyed; no manual delete needed.
 }

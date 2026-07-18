@@ -7,6 +7,16 @@
 #include "SensorService.h"
 #include "SerialLogger.h"
 
+// Definitions for the globals declared extern in main.h. INFLUXDB_URL is built
+// at compile time from string-literal secrets, so it needs no runtime heap
+// allocation (the previous std::string forced a heap alloc before setup()).
+const char SSID[] = SECRET_SSID;
+const char PASS[] = SECRET_PASS;
+const char INFLUXDB_HOST[] = INFLUX_HOST;
+const char INFLUXDB_TOKEN[] = INFLUX_TOKEN;
+const char INFLUXDB_URL[] = "/api/v2/write?org=" INFLUX_ORG_ID "&bucket=" INFLUX_BUCKET "&precision=s";
+int status = WL_IDLE_STATUS;
+
 WiFiConnectionHandler conMan(SSID, PASS);
 RTCZero rtc;
 SerialLogger Logger;
@@ -82,7 +92,7 @@ bool readSensors(void *argument) {
     return true;
 }
 
-int publishMessage(std::string str) {
+int publishMessage(const std::string& str) {
 #ifdef MOCK_INFLUXDB_API
     HttpClient httpClient(wiFiClient, ipAddress, 3001);
 #else
@@ -90,24 +100,33 @@ int publishMessage(std::string str) {
 #endif
 
     const char* payload = str.c_str();
-    size_t payloadLength = strlen(payload);
+    size_t payloadLength = str.length();
 
-    Logger.Debug("Starting HttpRequest to %s", INFLUXDB_URL.c_str());
+    Logger.Debug("Starting HttpRequest to %s", INFLUXDB_URL);
     //Logger.Debug("Payload %s", payload);
     httpClient.beginRequest();
-    httpClient.post(INFLUXDB_URL.c_str());
+    httpClient.post(INFLUXDB_URL);
     httpClient.sendHeader("Content-Type", "text/plain");
     httpClient.sendHeader("Authorization", INFLUXDB_TOKEN);
     httpClient.sendHeader(HTTP_HEADER_CONTENT_LENGTH, payloadLength);
     httpClient.beginBody();
     httpClient.write((const uint8_t *)payload, payloadLength);
 
+    // Read the status code exactly once.
     int statusCode = httpClient.responseStatusCode();
     //Logger.Debug("Finished HttpRequest with status code %d", statusCode);
 
-    if(httpClient.responseStatusCode() >= 300) {
-        Logger.Error(httpClient.responseBody().c_str());
+    // Always drain the response body so no bytes are left pending in the
+    // WiFi/SSL receive buffer; only log it on an error status. Pass it as a
+    // "%s" argument (not as the format string) so a body containing '%' is safe.
+    String responseBody = httpClient.responseBody();
+    if(statusCode >= 300) {
+        Logger.Error("%s", responseBody.c_str());
     }
+
+    // Release the underlying WiFiSSLClient/WiFiClient connection so TLS session
+    // state and socket buffers do not accumulate between 30s publish cycles.
+    httpClient.stop();
 
     return statusCode;
 }
