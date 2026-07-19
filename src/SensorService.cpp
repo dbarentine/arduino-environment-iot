@@ -1,5 +1,7 @@
 #include <sstream>
 //#include <format>
+#include <Arduino.h>
+#include <Wire.h>
 #include "SensorService.h"
 
 #ifdef ARDUINO_SAMD_VARIANT_COMPLIANCE
@@ -22,31 +24,70 @@
 //                     };
 
 TempHumditySensor::TempHumditySensor()
-    : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location() {
+    : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location(), i2cAddress(0) {
 }
 
-TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location)
-    : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)) {
+TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location, uint8_t i2cAddress)
+    : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)), i2cAddress(i2cAddress) {
 }
 
-TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location)
-    : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)) {
+TempHumditySensor::TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location, uint8_t i2cAddress)
+    : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)), i2cAddress(i2cAddress) {
 }
 
 DustSensor::DustSensor()
-        : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location() {
+        : sensor(nullptr), usesMultiplexer(false), multiplierChannel(0), location(), i2cAddress(0) {
 }
 
-DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, std::string location)
-        : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)) {
+DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, std::string location, uint8_t i2cAddress)
+        : sensor(std::move(sensor)), usesMultiplexer(false), multiplierChannel(0), location(std::move(location)), i2cAddress(i2cAddress) {
 }
 
-DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location)
-        : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)) {
+DustSensor::DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location, uint8_t i2cAddress)
+        : sensor(std::move(sensor)), usesMultiplexer(true), multiplierChannel(channel), location(std::move(location)), i2cAddress(i2cAddress) {
 }
 
 SensorService::SensorService(SerialLogger &logger, bool multiplexerEnabled, uint8_t multiplexerAddress)
         : logger(logger), multiplexerEnabled(multiplexerEnabled), multiplexer(multiplexerAddress) {
+}
+
+// Enable the SAMD21 SERCOM master SCL-low ("SMBus host") timeout on the I2C bus
+// that Wire uses (PERIPH_WIRE == sercom2 on the MKR WiFi 1010, so the register
+// bank is SERCOM2). Without it, a bus held low by a wedged, mis-wired, or absent
+// sensor makes the SERCOM master spin forever in its INTFLAG wait loops (see the
+// Arduino core's SERCOM.cpp) — that hangs the read tick until the ~16s hardware
+// watchdog reboots the board, and a persistent fault turns into a boot loop that
+// never lets USB enumerate. With LOWTOUTEN set, the hardware aborts a stuck
+// transfer (~25 ms) and Wire returns an error instead of blocking.
+//
+// CTRLA is enable-protected, so the peripheral must be disabled to change it;
+// we then re-enable and force the bus back to IDLE exactly as
+// SERCOM::enableWIRE() does. Call this AFTER all Wire.begin()/sensor init(), as
+// each Wire.begin() resets CTRLA and would clear the bit.
+static void enableI2cBusTimeout() {
+    SERCOM2->I2CM.CTRLA.bit.ENABLE = 0;
+    while (SERCOM2->I2CM.SYNCBUSY.bit.ENABLE) { }
+
+    SERCOM2->I2CM.CTRLA.bit.LOWTOUTEN = 1;   // abort if SCL is held low too long
+
+    SERCOM2->I2CM.CTRLA.bit.ENABLE = 1;
+    while (SERCOM2->I2CM.SYNCBUSY.bit.ENABLE) { }
+
+    // Force the bus state to IDLE so the next transfer can start.
+    SERCOM2->I2CM.STATUS.bit.BUSSTATE = 1;
+    while (SERCOM2->I2CM.SYNCBUSY.bit.SYSOP) { }
+}
+
+// Quick address ACK check: returns true only if a device ACKs at `address`.
+// endTransmission() returns 0 on ACK; anything else (NACK, bus error, or a
+// SERCOM SCL-low timeout) means "not present / not responding". Paired with
+// enableI2cBusTimeout() this can never block, so callers can skip a dead or
+// absent sensor instead of entering the driver/library retry loops (e.g.
+// Seeed_SHT35's `while (Wire.endTransmission() == NACK_ON_ADDR)`) that would
+// otherwise spin until the watchdog reboots.
+static bool sensorResponds(uint8_t address) {
+    Wire.beginTransmission(address);
+    return Wire.endTransmission() == 0;
 }
 
 // Appends one OTLP NumberDataPoint (gauge, asDouble) with sensor.name + location
@@ -156,10 +197,18 @@ std::tuple<float, float> SensorService::readTemperatureHumiditySensor(const std:
         multiplexer.selectChannel(s.multiplierChannel);
     }
 
-    if (s.sensor != nullptr &&
-        NO_ERROR !=
-        s.sensor->read_meas_data_single_shot(HIGH_REP_WITH_STRCH, &temperature, &humidity)) {
-        logger.Warning("Read failed for sensor %s", name.c_str());
+    if (s.sensor != nullptr) {
+        // Probe the address first so an absent/unresponsive sensor is skipped
+        // instead of blocking in the SHT35 library's NACK-retry loop. On skip or
+        // read failure, temperature stays 0 (→ 32F below), matching the prior
+        // read-failure behavior.
+        if (!sensorResponds(s.i2cAddress)) {
+            logger.Warning("Temp/humidity sensor %s (0x%02X) not responding; skipping read",
+                           name.c_str(), s.i2cAddress);
+        } else if (NO_ERROR !=
+                   s.sensor->read_meas_data_single_shot(HIGH_REP_WITH_STRCH, &temperature, &humidity)) {
+            logger.Warning("Read failed for sensor %s", name.c_str());
+        }
     }
 
     temperature = (temperature * 1.8) + 32;
@@ -192,7 +241,12 @@ std::tuple<uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t> SensorSer
         multiplexer.selectChannel(s.multiplierChannel);
     }
 
-    if (s.sensor != nullptr &&
+    if (s.sensor != nullptr && !sensorResponds(s.i2cAddress)) {
+        // Skip an absent/unresponsive dust sensor rather than blocking in the
+        // library read path.
+        logger.Warning("Dust sensor %s (0x%02X) not responding; skipping read",
+                       name.c_str(), s.i2cAddress);
+    } else if (s.sensor != nullptr &&
         NO_ERROR == s.sensor->read_sensor_value(dustSensorBuffer, 29)) {
         // Get checksum from sensor read
         uint8_t sum = 0;
@@ -240,33 +294,37 @@ SensorService *SensorService::addTemperatureHumiditySensor(std::string name, std
     // The struct owns its sensor via unique_ptr and is move-only, so emplace it.
     temperatureHumiditySensors.emplace(
         std::move(name),
-        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), std::move(location)));
+        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), std::move(location), IIC_ADDR));
     return this;
 }
 
 SensorService *SensorService::addTemperatureHumiditySensor(std::string name, std::string location, ushort channel, uint8_t IIC_ADDR) {
     temperatureHumiditySensors.emplace(
         std::move(name),
-        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), channel, std::move(location)));
+        TempHumditySensor(std::unique_ptr<SHT35>(new SHT35(SCLPIN, IIC_ADDR)), channel, std::move(location), IIC_ADDR));
     return this;
 }
 
 SensorService *SensorService::addDustSensor(std::string name, std::string location, uint8_t IIC_ADDR) {
     dustSensors.emplace(
         std::move(name),
-        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), std::move(location)));
+        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), std::move(location), IIC_ADDR));
     return this;
 }
 
 SensorService *SensorService::addDustSensor(std::string name, std::string location, ushort channel, uint8_t IIC_ADDR) {
     dustSensors.emplace(
         std::move(name),
-        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), channel, std::move(location)));
+        DustSensor(std::unique_ptr<HM330X>(new HM330X(IIC_ADDR)), channel, std::move(location), IIC_ADDR));
     return this;
 }
 
 bool SensorService::InitializeSensors() {
     bool isSuccessful = true;
+
+    // Ensure the I2C peripheral is up before the sensor libraries touch it (they
+    // also call Wire.begin() in their init(), which is idempotent).
+    Wire.begin();
 
     if(multiplexerEnabled && !multiplexer.begin()) {
         logger.Error("Unable to initialize multiplexer");
@@ -308,6 +366,10 @@ bool SensorService::InitializeSensors() {
             multiplexer.disableChannel(ds.multiplierChannel);
         }
     }
+
+    // Arm the SERCOM SCL-low timeout last: each Wire.begin()/sensor init() above
+    // resets CTRLA, so enabling it here makes it stick for the runtime reads.
+    enableI2cBusTimeout();
 
     return isSuccessful;
 }

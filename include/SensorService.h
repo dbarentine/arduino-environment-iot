@@ -18,24 +18,29 @@ typedef err_t HM330XErrorCode;
 
 struct TempHumditySensor {
     TempHumditySensor();
-    TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location);
-    TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location);
+    TempHumditySensor(std::unique_ptr<SHT35> sensor, std::string location, uint8_t i2cAddress);
+    TempHumditySensor(std::unique_ptr<SHT35> sensor, ushort channel, std::string location, uint8_t i2cAddress);
 
     std::unique_ptr<SHT35> sensor;
     bool usesMultiplexer;
     ushort multiplierChannel;
     std::string location;
+    // Kept alongside the sensor so a read can ACK-probe the device first and
+    // skip it if absent, rather than blocking in the driver/library (see the
+    // presence probe in SensorService.cpp).
+    uint8_t i2cAddress;
 };
 
 struct DustSensor {
     DustSensor();
-    DustSensor(std::unique_ptr<HM330X> sensor, std::string location);
-    DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location);
+    DustSensor(std::unique_ptr<HM330X> sensor, std::string location, uint8_t i2cAddress);
+    DustSensor(std::unique_ptr<HM330X> sensor, ushort channel, std::string location, uint8_t i2cAddress);
 
     std::unique_ptr<HM330X> sensor;
     bool usesMultiplexer;
     ushort multiplierChannel;
     std::string location;
+    uint8_t i2cAddress;
 };
 
 class SensorService {
